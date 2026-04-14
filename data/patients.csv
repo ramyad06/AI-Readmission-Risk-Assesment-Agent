@@ -1,0 +1,41 @@
+patient_id,age,primary_condition,length_of_stay_days,prior_admissions_6mo,discharge_destination,follow_up_scheduled,medication_count,comorbidity_count,readmitted_30d
+P001,78,Heart Failure,12,3,Home,No,11,4,Yes
+P002,65,COPD,8,2,SNF,Yes,7,3,Yes
+P003,82,Diabetes,15,4,Home,No,13,5,Yes
+P004,55,Pneumonia,5,1,Home+Services,Yes,5,2,No
+P005,70,Hip Fracture,10,2,Rehab,Yes,8,3,Yes
+P006,45,Diabetes,4,0,Home,Yes,4,1,No
+P007,85,Heart Failure,18,5,Home,No,14,5,Yes
+P008,60,COPD,7,2,Home,No,9,3,Yes
+P009,38,Pneumonia,3,0,Home,Yes,3,0,No
+P010,72,Hip Fracture,9,2,SNF,Yes,6,2,No
+P011,80,Heart Failure,14,4,Home,No,12,4,Yes
+P012,50,Diabetes,6,1,Home+Services,Yes,5,1,No
+P013,67,COPD,11,3,Home,No,10,4,Yes
+P014,43,Pneumonia,2,0,Home,Yes,2,0,No
+P015,76,Heart Failure,8,2,SNF,Yes,8,3,No
+P016,58,Diabetes,5,1,Home,Yes,6,2,No
+P017,88,Hip Fracture,20,4,Home,No,13,5,Yes
+P018,62,COPD,9,2,Home+Services,No,9,3,Yes
+P019,35,Pneumonia,2,0,Home,Yes,2,0,No
+P020,74,Heart Failure,13,3,Home,No,11,4,Yes
+P021,69,Diabetes,7,2,SNF,Yes,7,2,No
+P022,53,Hip Fracture,6,1,Rehab,Yes,5,1,No
+P023,77,COPD,10,3,Home,No,10,3,Yes
+P024,48,Heart Failure,4,1,Home+Services,Yes,5,2,No
+P025,83,Diabetes,16,4,Home,No,12,5,Yes
+P026,64,Pneumonia,6,1,Home,Yes,4,1,No
+P027,71,Hip Fracture,8,2,SNF,Yes,7,2,No
+P028,29,Heart Failure,3,0,Home,Yes,9,1,No
+P029,79,COPD,12,3,Home,No,11,4,Yes
+P030,56,Diabetes,5,1,Home+Services,Yes,5,1,No
+P031,86,Pneumonia,17,5,Home,No,13,5,Yes
+P032,40,Hip Fracture,4,0,Home,Yes,3,0,No
+P033,73,Heart Failure,11,3,Rehab,Yes,8,3,No
+P034,61,COPD,8,2,Home,No,9,3,Yes
+P035,47,Diabetes,3,0,Home,Yes,3,0,No
+P036,90,Heart Failure,22,5,Home,No,15,5,Yes
+P037,55,Hip Fracture,5,1,Home+Services,Yes,4,1,No
+P038,68,Pneumonia,7,2,Home,No,8,3,Yes
+P039,24,COPD,2,0,Home,Yes,2,0,No
+P040,75,Diabetes,9,2,Home,No,10,3,Yes

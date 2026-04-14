@@ -1,0 +1,99 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# .gitignore — Hospital Readmission Prediction Agent
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+wheels/
+MANIFEST
+.eggs/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# ── Virtual environment ───────────────────────────────────────────────────────
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.python-version
+
+# ── Streamlit ─────────────────────────────────────────────────────────────────
+.streamlit/secrets.toml
+
+# ── Jupyter ───────────────────────────────────────────────────────────────────
+.ipynb_checkpoints
+*.ipynb
+
+# ── macOS ─────────────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+.AppleDouble
+.LSOverride
+ehthumbs.db
+Thumbs.db
+
+# ── IDEs & editors ────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+*.sublime-project
+*.sublime-workspace
+
+# ── Testing & coverage ────────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+
+# ── Ollama / large model files ────────────────────────────────────────────────
+*.gguf
+*.ggml
+*.bin
+models/
+
+# ── Logs & runtime ────────────────────────────────────────────────────────────
+*.log
+*.out
+*.err
+logs/
+*.pid
+
+# ── Secrets & environment ─────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.cert
+secrets.toml
+config.local.*
+
+# ── Generated exports (keep patients.csv, ignore runtime exports) ─────────────
+data/exports/
+data/*.bak
+reports/
+*.report.txt
+
+# ── Type stubs ────────────────────────────────────────────────────────────────
+*.pyi
