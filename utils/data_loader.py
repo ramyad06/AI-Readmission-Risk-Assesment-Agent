@@ -6,7 +6,7 @@ All data is synthetic and anonymised. No real patient information is used.
 
 import os
 import pandas as pd
-from typing import Optional
+from typing import Any, Dict, Optional
 
 # Resolve the absolute path to the CSV regardless of CWD
 _DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data")
@@ -31,7 +31,7 @@ def load_all_patients() -> pd.DataFrame:
     return df
 
 
-def list_patient_ids() -> list:
+def list_patient_ids() -> list[str]:
     """Return a sorted list of all patient_id values from the dataset.
 
     Returns:
@@ -41,7 +41,7 @@ def list_patient_ids() -> list:
     return sorted(df["patient_id"].tolist())
 
 
-def load_patient_by_id(patient_id: str) -> Optional[dict]:
+def load_patient_by_id(patient_id: str) -> Optional[Dict[str, Any]]:
     """Retrieve a single patient record as a dictionary by their patient_id.
 
     Args:

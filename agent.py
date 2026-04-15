@@ -1,14 +1,8 @@
 """
-agent.py — LangChain AI Agent for Hospital Readmission Risk Assessment.
+agent.py — LangChain agent and orchestration for readmission risk assessment.
 
-Uses Ollama (llama3:8b) as the local LLM with two tools:
-  1. patient_lookup_tool  — retrieves patient data from CSV
-  2. risk_scorer_tool     — computes rule-based risk score
-
-All inference runs fully offline. No cloud API calls are made.
-
-Conversational input (free text without a patient ID) is handled via a
-deterministic extraction path — no LLM iteration loop required.
+Interactive assessments use local LLM reasoning plus a rule-based scoring tool.
+Dashboard and batch utilities can still use deterministic scoring directly.
 """
 
 from __future__ import annotations
@@ -18,28 +12,37 @@ import sys
 if sys.version_info >= (3, 14):
     try:
         import pydantic._internal._typing_extra as typing_extra
-        # Store the original try_eval_type function
+
         _orig_try_eval_type = typing_extra.try_eval_type
-        
+        _orig_eval_type_backport = typing_extra.eval_type_backport
+
         def patched_try_eval_type(value, globalns, localns):
-            """Wrapper that handles dict[str, Any] subscripting in Python 3.14"""
+            """Wrapper that handles Python 3.14 annotation evaluation failures."""
             try:
                 return _orig_try_eval_type(value, globalns, localns)
-            except TypeError as e:
-                if "'function' object is not subscriptable" in str(e):
-                    # Return the unevaluated type - pydantic will handle it
-                    return (value, False)
+            except TypeError as exc:
+                if "'function' object is not subscriptable" in str(exc):
+                    return value, False
+                raise
+
+        def patched_eval_type_backport(value, globalns=None, localns=None, type_params=None):
+            """Wrapper to catch remaining type evaluation crashes."""
+            try:
+                return _orig_eval_type_backport(value, globalns, localns, type_params)
+            except TypeError as exc:
+                if "'function' object is not subscriptable" in str(exc):
+                    return value
                 raise
         
-        # Apply the patch
         typing_extra.try_eval_type = patched_try_eval_type
+        typing_extra.eval_type_backport = patched_eval_type_backport
     except Exception:
         pass
 
 import json
 import os
 import re
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 from langchain.agents import AgentExecutor, create_react_agent
 from langchain.prompts import PromptTemplate
@@ -68,6 +71,24 @@ _CONDITION_MAP = {
     "hip fracture": "Hip Fracture",
     "hip": "Hip Fracture",
 }
+
+_ROLE_LABELS = {
+    "care coordinators": "Care Coordinators",
+    "hospital operations team": "Hospital Operations Team",
+    "case managers": "Case Managers",
+    "nursing staff": "Nursing Staff",
+}
+
+_DEFAULT_ROLE = "Care Coordinators"
+
+_SAFETY_DISCLAIMER = (
+    "⚠️ SAFETY DISCLAIMER: This is a decision-support tool. "
+    "Always consult a licensed clinician before acting on this output."
+)
+
+_FALLBACK_WARNING_PREFIX = (
+    "⚠️ LLM reasoning unavailable. Deterministic explanation mode used:"
+)
 
 
 def _load_system_prompt() -> str:
@@ -201,6 +222,326 @@ def parse_conversational_input(text: str) -> dict:
         "follow_up_scheduled": follow_up,
         "medication_count": meds,
         "comorbidity_count": comorbidities,
+    }
+
+
+def _normalize_role(role: Optional[str]) -> str:
+    """Normalize role labels into one of the supported target user groups."""
+    if not role:
+        return _DEFAULT_ROLE
+    normalized = str(role).strip().lower()
+    return _ROLE_LABELS.get(normalized, _DEFAULT_ROLE)
+
+
+def _call_risk_scorer_tool(patient: dict) -> dict:
+    """Call the risk scoring tool wrapper and parse its JSON response."""
+    patient_json = json.dumps(patient, default=str)
+
+    # Call the underlying tool function directly outside agent loops.
+    raw = risk_scorer_tool.func(patient_json)
+    result = json.loads(raw)
+    if "error" in result:
+        raise ValueError(result["error"])
+    return result
+
+
+def _extract_first_json_object(text: str) -> dict:
+    """Extract and parse the first JSON object in a model response string."""
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        raise ValueError("No JSON object found in LLM response")
+    return json.loads(text[start : end + 1])
+
+
+def _fallback_actions(risk: dict, role: str) -> list[str]:
+    """Generate non-clinical preventive actions when LLM output is unavailable."""
+    factors = risk.get("contributing_factors", [])
+    level = risk.get("risk_level", "Low")
+    actions = []
+
+    if "No follow-up scheduled" in factors:
+        actions.append("Schedule follow-up within 7 days and confirm patient receives appointment details.")
+    if "Prior admissions ≥ 2 in last 6 months" in factors:
+        actions.append("Arrange proactive outreach calls in the first 72 hours after discharge.")
+    if "Length of stay > 7 days" in factors:
+        actions.append("Create a discharge transition checklist and verify completion before handoff.")
+    if "Medication count ≥ 8" in factors:
+        actions.append("Assign medication reconciliation review and confirm understanding at discharge.")
+
+    if role == "Hospital Operations Team":
+        actions.append("Flag this case in daily operations huddle for transition-of-care capacity planning.")
+    elif role == "Case Managers":
+        actions.append("Coordinate post-discharge support services and document barriers to follow-up.")
+    elif role == "Nursing Staff":
+        actions.append("Use a discharge education checklist and confirm teach-back completion.")
+    else:
+        actions.append("Confirm care coordinator ownership and close-loop follow-up tracking.")
+
+    if level == "High":
+        actions.insert(0, "⚠️ ESCALATE: Immediate care coordinator review recommended.")
+
+    deduped = []
+    seen = set()
+    for item in actions:
+        if item not in seen:
+            deduped.append(item)
+            seen.add(item)
+    return deduped[:4]
+
+
+def _render_assessment_response(
+    patient_id: str,
+    role: str,
+    risk: dict,
+    reasoning_summary: str,
+    actions: list[str],
+    llm_warning: Optional[str] = None,
+) -> str:
+    """Render a strict assessment response format with mandatory sections."""
+    badge = {
+        "High": "🔴 HIGH",
+        "Medium": "🟡 MEDIUM",
+        "Low": "🟢 LOW",
+    }.get(risk.get("risk_level", "Low"), "🟢 LOW")
+
+    factors = risk.get("contributing_factors") or ["No major risk factors identified by scoring rules."]
+    top_factors = factors[:3]
+
+    if risk.get("risk_level") == "High" and not any("ESCALATE" in a for a in actions):
+        actions = ["⚠️ ESCALATE: Immediate care coordinator review recommended."] + actions
+
+    lines = [
+        "READMISSION RISK ASSESSMENT",
+        f"Target User: {role}",
+        f"Patient ID: {patient_id}",
+        f"Readmission Risk Level: {badge}",
+        f"Risk Score: {risk.get('score', 0)} / 10",
+        "",
+        "REASONING SUMMARY:",
+        reasoning_summary.strip() or "Risk interpretation generated from patient profile and scoring output.",
+        "",
+        "TOP CONTRIBUTING FACTORS:",
+    ]
+
+    for factor in top_factors:
+        lines.append(f"• {factor}")
+
+    lines.extend(["", "RECOMMENDED PREVENTIVE ACTIONS:"])
+    for action in actions[:4]:
+        lines.append(f"• {action}")
+
+    if llm_warning:
+        lines.extend(["", llm_warning])
+
+    lines.extend(["", _SAFETY_DISCLAIMER])
+    return "\n".join(lines)
+
+
+def _build_reasoning_prompt(
+    patient: dict,
+    risk: dict,
+    role: str,
+    query: str,
+) -> str:
+    """Create a tightly constrained prompt for JSON reasoning output."""
+    return (
+        "You are a non-clinical hospital discharge decision-support assistant.\n"
+        "Return JSON only with this exact schema:\n"
+        "{\n"
+        "  \"reasoning_summary\": string,\n"
+        "  \"preventive_actions\": [string, string, string],\n"
+        "  \"top_contributing_factors\": [string, string, string]\n"
+        "}\n"
+        "Rules:\n"
+        "- Use non-clinical, coordination-focused actions only.\n"
+        "- Do not diagnose or prescribe medications.\n"
+        "- If risk_level is High, include this exact action: \"⚠️ ESCALATE: Immediate care coordinator review recommended.\"\n"
+        "- Tailor wording for this target user role: "
+        f"{role}.\n\n"
+        f"Original request: {query or 'N/A'}\n\n"
+        f"Patient data:\n{json.dumps(patient, indent=2)}\n\n"
+        f"Risk assessment:\n{json.dumps(risk, indent=2)}"
+    )
+
+
+def _llm_reasoning_payload(patient: dict, risk: dict, role: str, query: str) -> dict:
+    """Ask the local LLM for explanatory reasoning and preventive actions."""
+    llm = ChatOllama(
+        model="llama3.2:1b",
+        temperature=0.1,
+        num_predict=900,
+    )
+    response = llm.invoke(_build_reasoning_prompt(patient, risk, role, query))
+    content = getattr(response, "content", response)
+
+    if isinstance(content, list):
+        pieces = []
+        for chunk in content:
+            if isinstance(chunk, dict):
+                pieces.append(str(chunk.get("text", "")))
+            else:
+                pieces.append(str(chunk))
+        text = "\n".join(pieces).strip()
+    else:
+        text = str(content).strip()
+
+    payload = _extract_first_json_object(text)
+    if not isinstance(payload, dict):
+        raise ValueError("Unexpected LLM reasoning payload type")
+    return payload
+
+
+def run_assessment_with_reasoning(
+    query: str = "",
+    role: str = _DEFAULT_ROLE,
+    patient_id: Optional[str] = None,
+    patient_data: Optional[dict] = None,
+    allow_llm: bool = True,
+) -> dict[str, Any]:
+    """Run a unified interactive assessment with mandatory output sections.
+
+    This is the primary path for interactive UI actions (Assess and Chat).
+    It always calls the risk scoring tool and then attempts LLM reasoning.
+    If LLM is unavailable, it falls back to deterministic interpretation.
+    """
+    role_name = _normalize_role(role)
+
+    patient: Optional[dict] = None
+    source_query = (query or "").strip()
+
+    if patient_data is not None:
+        patient = dict(patient_data)
+    elif patient_id:
+        pid = str(patient_id).strip().upper()
+        patient = load_patient_by_id(pid)
+        if patient is None:
+            return {
+                "error": f"Patient '{pid}' not found.",
+                "response_text": (
+                    f"READMISSION RISK ASSESSMENT\n"
+                    f"Target User: {role_name}\n"
+                    f"Patient ID: {pid}\n\n"
+                    f"Unable to locate this patient in the local dataset.\n\n"
+                    f"{_SAFETY_DISCLAIMER}"
+                ),
+                "patient_data": None,
+                "risk_assessment": None,
+                "used_llm_reasoning": False,
+                "used_fallback": True,
+                "role": role_name,
+            }
+    else:
+        pid_match = re.search(r"\bP\d{3}\b", source_query.upper())
+        if pid_match:
+            patient = load_patient_by_id(pid_match.group())
+            if patient is None:
+                return {
+                    "error": f"Patient '{pid_match.group()}' not found.",
+                    "response_text": (
+                        f"READMISSION RISK ASSESSMENT\n"
+                        f"Target User: {role_name}\n"
+                        f"Patient ID: {pid_match.group()}\n\n"
+                        f"Unable to locate this patient in the local dataset.\n\n"
+                        f"{_SAFETY_DISCLAIMER}"
+                    ),
+                    "patient_data": None,
+                    "risk_assessment": None,
+                    "used_llm_reasoning": False,
+                    "used_fallback": True,
+                    "role": role_name,
+                }
+        elif source_query:
+            patient = parse_conversational_input(source_query)
+
+    if patient is None:
+        return {
+            "error": "No patient information was provided.",
+            "response_text": (
+                "READMISSION RISK ASSESSMENT\n\n"
+                "Provide a patient ID (for example, P007) or describe a patient profile "
+                "to run an assessment.\n\n"
+                f"{_SAFETY_DISCLAIMER}"
+            ),
+            "patient_data": None,
+            "risk_assessment": None,
+            "used_llm_reasoning": False,
+            "used_fallback": True,
+            "role": role_name,
+        }
+
+    patient.setdefault("patient_id", patient_id or "NEW")
+    patient_id_text = str(patient.get("patient_id", "NEW")).strip() or "NEW"
+
+    try:
+        risk = _call_risk_scorer_tool(patient)
+    except Exception as exc:
+        return {
+            "error": str(exc),
+            "response_text": (
+                f"READMISSION RISK ASSESSMENT\n"
+                f"Target User: {role_name}\n"
+                f"Patient ID: {patient_id_text}\n\n"
+                f"Risk scoring tool failed: {exc}\n\n"
+                f"{_SAFETY_DISCLAIMER}"
+            ),
+            "patient_data": patient,
+            "risk_assessment": None,
+            "used_llm_reasoning": False,
+            "used_fallback": True,
+            "role": role_name,
+        }
+
+    reasoning_summary = (
+        "Patient profile and rule-based score were reviewed to estimate readmission risk and transition needs."
+    )
+    actions = _fallback_actions(risk, role_name)
+    llm_warning = None
+    used_llm = False
+    used_fallback = True
+
+    if allow_llm:
+        try:
+            payload = _llm_reasoning_payload(patient, risk, role_name, source_query)
+
+            candidate_summary = str(payload.get("reasoning_summary", "")).strip()
+            if candidate_summary:
+                reasoning_summary = candidate_summary
+
+            candidate_actions = payload.get("preventive_actions", [])
+            if isinstance(candidate_actions, list):
+                cleaned_actions = [str(a).strip() for a in candidate_actions if str(a).strip()]
+                if cleaned_actions:
+                    actions = cleaned_actions[:4]
+
+            candidate_factors = payload.get("top_contributing_factors", [])
+            if isinstance(candidate_factors, list):
+                cleaned_factors = [str(f).strip() for f in candidate_factors if str(f).strip()]
+                if cleaned_factors:
+                    risk["contributing_factors"] = cleaned_factors
+
+            used_llm = True
+            used_fallback = False
+        except Exception as exc:
+            llm_warning = f"{_FALLBACK_WARNING_PREFIX} {exc}"
+
+    response_text = _render_assessment_response(
+        patient_id=patient_id_text,
+        role=role_name,
+        risk=risk,
+        reasoning_summary=reasoning_summary,
+        actions=actions,
+        llm_warning=llm_warning,
+    )
+
+    return {
+        "error": None,
+        "response_text": response_text,
+        "patient_data": patient,
+        "risk_assessment": risk,
+        "used_llm_reasoning": used_llm,
+        "used_fallback": used_fallback,
+        "role": role_name,
     }
 
 

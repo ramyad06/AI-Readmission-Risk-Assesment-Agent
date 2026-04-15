@@ -7,9 +7,8 @@ Runs Fully Offline · Decision-Support Only
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-import re
 
-from agent import run_agent_direct, run_agent_conversational
+from agent import run_assessment_with_reasoning
 from tools.risk_scorer import compute_risk_score
 from utils.data_loader import load_all_patients, list_patient_ids
 
@@ -63,6 +62,118 @@ def get_all_patients():
 def get_patient_ids():
     return list_patient_ids()
 
+
+def _parse_assessment_response(text: str) -> dict:
+    """Parse the agent response into structured sections for display formatting."""
+    parsed = {
+        "target_user": "",
+        "patient_id": "",
+        "risk_level": "",
+        "risk_score": "",
+        "reasoning_summary": "",
+        "factors": [],
+        "actions": [],
+        "warning": "",
+        "disclaimer": "",
+    }
+
+    section = None
+    for raw_line in str(text or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        if line.startswith("Target User:"):
+            parsed["target_user"] = line.split(":", 1)[1].strip()
+            section = None
+            continue
+        if line.startswith("Patient ID:"):
+            parsed["patient_id"] = line.split(":", 1)[1].strip()
+            section = None
+            continue
+        if line.startswith("Readmission Risk Level:"):
+            parsed["risk_level"] = line.split(":", 1)[1].strip()
+            section = None
+            continue
+        if line.startswith("Risk Score:"):
+            parsed["risk_score"] = line.split(":", 1)[1].strip()
+            section = None
+            continue
+
+        if line == "REASONING SUMMARY:":
+            section = "summary"
+            continue
+        if line == "TOP CONTRIBUTING FACTORS:":
+            section = "factors"
+            continue
+        if line == "RECOMMENDED PREVENTIVE ACTIONS:":
+            section = "actions"
+            continue
+
+        if line.startswith("⚠️ LLM reasoning unavailable"):
+            parsed["warning"] = line
+            section = None
+            continue
+        if line.startswith("⚠️ SAFETY DISCLAIMER:"):
+            parsed["disclaimer"] = line
+            section = None
+            continue
+
+        if line.startswith("• "):
+            item = line[2:].strip()
+            if section == "factors":
+                parsed["factors"].append(item)
+            elif section == "actions":
+                parsed["actions"].append(item)
+            continue
+
+        if section == "summary":
+            if parsed["reasoning_summary"]:
+                parsed["reasoning_summary"] += " "
+            parsed["reasoning_summary"] += line
+
+    return parsed
+
+
+def _format_assessment_markdown(text: str) -> str:
+    """Return a user-friendly Markdown rendering of the assessment text."""
+    p = _parse_assessment_response(text)
+
+    lines = [
+        "### READMISSION RISK ASSESSMENT",
+        "",
+        f"**Target User:** {p['target_user'] or 'N/A'}",
+        f"**Patient ID:** {p['patient_id'] or 'N/A'}",
+        f"**Readmission Risk Level:** {p['risk_level'] or 'N/A'}",
+        f"**Risk Score:** {p['risk_score'] or 'N/A'}",
+        "",
+        "#### REASONING SUMMARY",
+        p["reasoning_summary"] or "No reasoning summary available.",
+        "",
+        "#### TOP CONTRIBUTING FACTORS",
+    ]
+
+    if p["factors"]:
+        for factor in p["factors"]:
+            lines.append(f"- {factor}")
+    else:
+        lines.append("- No contributing factors listed.")
+
+    lines.extend(["", "#### RECOMMENDED PREVENTIVE ACTIONS"])
+    if p["actions"]:
+        for action in p["actions"]:
+            lines.append(f"- {action}")
+    else:
+        lines.append("- No preventive actions listed.")
+
+    if p["warning"]:
+        lines.extend(["", f"> {p['warning']}"])
+
+    if p["disclaimer"]:
+        lines.extend(["", f"> {p['disclaimer']}"])
+
+    return "\n".join(lines)
+
 # -----------------------------------------------------------------------------
 # Header
 # -----------------------------------------------------------------------------
@@ -77,6 +188,18 @@ st.divider()
 # -----------------------------------------------------------------------------
 with st.sidebar:
     st.header("⚙️ Controls")
+
+    target_role = st.selectbox(
+        "Target User",
+        [
+            "Care Coordinators",
+            "Hospital Operations Team",
+            "Case Managers",
+            "Nursing Staff",
+        ],
+        index=0,
+        help="Interactive assessments tailor non-clinical actions for this user group.",
+    )
 
     if st.button("▶ Run Demo (P007)"):
         st.session_state["demo"] = "P007"
@@ -104,6 +227,7 @@ tab_dashboard, tab_assess, tab_chat, tab_records = st.tabs([
 # =============================================================================
 with tab_dashboard:
     st.subheader("Risk Overview")
+    st.caption("Operational overview only: deterministic scoring is used in this tab.")
 
     df = get_all_patients()
 
@@ -130,6 +254,7 @@ with tab_dashboard:
 # =============================================================================
 with tab_assess:
     st.subheader("Assess Readmission Risk")
+    st.caption("Interactive assessments use LLM reasoning plus rule-based scoring.")
 
     mode = st.radio(
         "Select Mode",
@@ -144,23 +269,18 @@ with tab_assess:
         pid = st.selectbox("Patient ID", ids, index=ids.index(default_pid))
 
         if st.button("Assess Patient"):
-            result = run_agent_direct(pid)
+            result = run_assessment_with_reasoning(
+                query=f"Assess patient {pid} for 30-day readmission risk.",
+                role=target_role,
+                patient_id=pid,
+            )
 
             if result["error"]:
-                st.error("Patient not found.")
+                st.error(result["error"])
             else:
-                risk = result["risk_assessment"]
-                pdata = result["patient_data"]
-
-                st.success(f"Risk Level: {risk['risk_level']}")
-                st.metric("Risk Score", f"{risk['score']}/10")
-
-                st.markdown("### Contributing Factors")
-                for factor in risk["contributing_factors"]:
-                    st.write(f"• {factor}")
-
-                st.markdown("### Patient Summary")
-                st.json(pdata)
+                st.markdown(_format_assessment_markdown(result["response_text"]))
+                with st.expander("Patient Summary", expanded=False):
+                    st.json(result["patient_data"])
 
     else:
         with st.form("new_patient"):
@@ -201,20 +321,27 @@ with tab_assess:
                 "comorbidity_count": comorb,
             }
 
-            risk = compute_risk_score(patient)
+            result = run_assessment_with_reasoning(
+                query=(
+                    "Assess this new patient profile for 30-day readmission risk and "
+                    "provide non-clinical preventive actions."
+                ),
+                role=target_role,
+                patient_data=patient,
+            )
 
-            st.success(f"Risk Level: {risk['risk_level']}")
-            st.metric("Risk Score", f"{risk['score']}/10")
-
-            st.markdown("### Contributing Factors")
-            for factor in risk["contributing_factors"]:
-                st.write(f"• {factor}")
+            if result["error"]:
+                st.error(result["error"])
+            st.markdown(_format_assessment_markdown(result["response_text"]))
+            with st.expander("Patient Summary", expanded=False):
+                st.json(result["patient_data"])
 
 # =============================================================================
 # TAB 3 — AI ASSISTANT
 # =============================================================================
 with tab_chat:
     st.subheader("AI Discharge Assistant")
+    st.caption("Chat responses use LLM reasoning with mandatory safety and action sections.")
 
     user_input = st.chat_input(
         "Enter a patient ID or describe a patient..."
@@ -226,19 +353,18 @@ with tab_chat:
     if user_input:
         st.session_state.chat_history.append(("user", user_input))
 
-        pid_match = re.search(r"\bP\d{3}\b", user_input.upper())
-
-        if pid_match:
-            result = run_agent_direct(pid_match.group())
-        else:
-            result = run_agent_conversational(user_input)
-
-        risk = result["risk_assessment"]
-
-        reply = (
-            f"**Risk Level:** {risk['risk_level']}  \n"
-            f"**Risk Score:** {risk['score']}/10"
+        result = run_assessment_with_reasoning(
+            query=user_input,
+            role=target_role,
         )
+
+        if result["error"]:
+            reply = (
+                f"{_format_assessment_markdown(result['response_text'])}\n\n"
+                f"**Error:** {result['error']}"
+            )
+        else:
+            reply = _format_assessment_markdown(result["response_text"])
 
         st.session_state.chat_history.append(("assistant", reply))
 
@@ -251,6 +377,7 @@ with tab_chat:
 # =============================================================================
 with tab_records:
     st.subheader("Patient Records")
+    st.caption("Operational records view uses deterministic scoring for fast filtering/export.")
 
     df = get_all_patients()
 
