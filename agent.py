@@ -11,6 +11,31 @@ Conversational input (free text without a patient ID) is handled via a
 deterministic extraction path — no LLM iteration loop required.
 """
 
+from __future__ import annotations
+
+# Python 3.14 compatibility: patch pydantic's type evaluation
+import sys
+if sys.version_info >= (3, 14):
+    try:
+        import pydantic._internal._typing_extra as typing_extra
+        # Store the original try_eval_type function
+        _orig_try_eval_type = typing_extra.try_eval_type
+        
+        def patched_try_eval_type(value, globalns, localns):
+            """Wrapper that handles dict[str, Any] subscripting in Python 3.14"""
+            try:
+                return _orig_try_eval_type(value, globalns, localns)
+            except TypeError as e:
+                if "'function' object is not subscriptable" in str(e):
+                    # Return the unevaluated type - pydantic will handle it
+                    return (value, False)
+                raise
+        
+        # Apply the patch
+        typing_extra.try_eval_type = patched_try_eval_type
+    except Exception:
+        pass
+
 import json
 import os
 import re

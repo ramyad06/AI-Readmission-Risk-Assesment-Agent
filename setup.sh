@@ -13,13 +13,13 @@ echo "=============================================="
 # ── Step 1: Create virtual environment ────────────────────────────────────────
 echo ""
 echo "[1/5] Creating Python virtual environment..."
-python3 -m venv venv
+python -m venv venv
 echo "      ✔ Virtual environment created at ./venv"
 
 # ── Step 2: Activate venv ─────────────────────────────────────────────────────
 echo ""
 echo "[2/5] Activating virtual environment..."
-source venv/bin/activate
+source venv/Scripts/activate
 echo "      ✔ Virtual environment activated"
 
 # ── Step 3: Upgrade pip ───────────────────────────────────────────────────────
@@ -67,7 +67,7 @@ echo " Setup Complete!"
 echo "=============================================="
 echo ""
 echo "  To start the application:"
-echo "    1. source venv/bin/activate"
+echo "    1. source venv/Scripts/activate"
 echo "    2. ollama serve  (if not already running)"
 echo "    3. streamlit run app.py"
 echo ""
