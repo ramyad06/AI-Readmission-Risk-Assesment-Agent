@@ -18,7 +18,6 @@ from utils.data_loader import load_all_patients, list_patient_ids
 # -----------------------------------------------------------------------------
 st.set_page_config(
     page_title="Discharge Planning Hub",
-    page_icon="🏥",
     layout="wide"
 )
 
@@ -177,7 +176,7 @@ def _format_assessment_markdown(text: str) -> str:
 # -----------------------------------------------------------------------------
 # Header
 # -----------------------------------------------------------------------------
-st.title("🏥 Discharge Planning Hub")
+st.title("Discharge Planning Hub")
 st.caption(
     "30-Day Readmission Risk Assessment · Decision-Support Tool · Runs Offline"
 )
@@ -187,7 +186,7 @@ st.divider()
 # Sidebar
 # -----------------------------------------------------------------------------
 with st.sidebar:
-    st.header("⚙️ Controls")
+    st.header("Controls")
 
     target_role = st.selectbox(
         "Target User",
@@ -201,10 +200,10 @@ with st.sidebar:
         help="Interactive assessments tailor non-clinical actions for this user group.",
     )
 
-    if st.button("▶ Run Demo (P007)"):
+    if st.button("Run Demo (P007)"):
         st.session_state["demo"] = "P007"
 
-    if st.button("🗑 Clear Session"):
+    if st.button("Clear Session"):
         st.session_state.clear()
         st.rerun()
 
@@ -216,10 +215,10 @@ with st.sidebar:
 # Tabs
 # -----------------------------------------------------------------------------
 tab_dashboard, tab_assess, tab_chat, tab_records = st.tabs([
-    "📊 Dashboard",
-    "🧑‍⚕️ Assess Patient",
-    "💬 AI Assistant",
-    "📋 Records"
+    "Dashboard",
+    "Assess Patient",
+    "AI Assistant",
+    "Records"
 ])
 
 # =============================================================================
