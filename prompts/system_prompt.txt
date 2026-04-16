@@ -45,12 +45,12 @@ REASONING SUMMARY:
 <brief explanation>
 
 TOP CONTRIBUTING FACTORS:
-• <factor 1>
-• <factor 2>
+- <factor 1>
+- <factor 2>
 
 RECOMMENDED PREVENTIVE ACTIONS:
-• <action 1>
-• <action 2>
+- <action 1>
+- <action 2>
 
 SAFETY DISCLAIMER: This is a decision-support tool. Always consult a licensed clinician before acting on this output.
 

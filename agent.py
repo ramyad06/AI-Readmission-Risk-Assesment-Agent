@@ -1,10 +1,3 @@
-"""
-agent.py — LangChain agent and orchestration for readmission risk assessment.
-
-Interactive assessments use local LLM reasoning plus a rule-based scoring tool.
-Dashboard and batch utilities can still use deterministic scoring directly.
-"""
-
 from __future__ import annotations
 
 import sys
@@ -16,7 +9,6 @@ if sys.version_info >= (3, 14):
         _orig_eval_type_backport = typing_extra.eval_type_backport
 
         def patched_try_eval_type(value, globalns, localns):
-            """Wrapper that handles Python 3.14 annotation evaluation failures."""
             try:
                 return _orig_try_eval_type(value, globalns, localns)
             except TypeError as exc:
@@ -25,7 +17,6 @@ if sys.version_info >= (3, 14):
                 raise
 
         def patched_eval_type_backport(value, globalns=None, localns=None, type_params=None):
-            """Wrapper to catch remaining type evaluation crashes."""
             try:
                 return _orig_eval_type_backport(value, globalns, localns, type_params)
             except TypeError as exc:
@@ -89,14 +80,6 @@ _FALLBACK_WARNING_PREFIX = (
 
 
 def _load_system_prompt() -> str:
-    """Load the system prompt from the prompts directory.
-
-    Returns:
-        str: Raw system prompt text.
-
-    Raises:
-        FileNotFoundError: If system_prompt.txt is missing.
-    """
     if not os.path.exists(_PROMPT_PATH):
         raise FileNotFoundError(f"System prompt not found at: {_PROMPT_PATH}")
     with open(_PROMPT_PATH, "r", encoding="utf-8") as f:
@@ -104,14 +87,6 @@ def _load_system_prompt() -> str:
 
 @tool
 def patient_lookup_tool(patient_id: str) -> str:
-    """Look up a patient record in the hospital dataset by their patient ID.
-
-    Args:
-        patient_id (str): The patient identifier (e.g. 'P007').
-
-    Returns:
-        str: JSON-encoded patient record, or an error message if not found.
-    """
     patient_id = str(patient_id).strip().upper()
     record = load_patient_by_id(patient_id)
     if record is None:
@@ -123,21 +98,6 @@ def patient_lookup_tool(patient_id: str) -> str:
 
 
 def parse_conversational_input(text: str) -> dict:
-    """Extract patient attributes from a free-text description.
-
-    Supports phrases like:
-      "65 year old with COPD, 3 prior admissions, no follow-up booked"
-      "72yo female, heart failure, 13 day stay, 11 meds, 4 comorbidities"
-
-    Applies conservative defaults for any field that cannot be parsed,
-    so that assessments are always possible from partial information.
-
-    Args:
-        text (str): Raw natural-language patient description.
-
-    Returns:
-        dict: Partial patient record usable by compute_risk_score().
-    """
     t = text.lower()
 
     age = 0
@@ -212,7 +172,6 @@ def parse_conversational_input(text: str) -> dict:
 
 
 def _normalize_role(role: Optional[str]) -> str:
-    """Normalize role labels into one of the supported target user groups."""
     if not role:
         return _DEFAULT_ROLE
     normalized = str(role).strip().lower()
@@ -220,10 +179,7 @@ def _normalize_role(role: Optional[str]) -> str:
 
 
 def _call_risk_scorer_tool(patient: dict) -> dict:
-    """Call the risk scoring tool wrapper and parse its JSON response."""
     patient_json = json.dumps(patient, default=str)
-
-    # Call the underlying tool function directly outside agent loops.
     raw = risk_scorer_tool.func(patient_json)
     result = json.loads(raw)
     if "error" in result:
@@ -232,7 +188,6 @@ def _call_risk_scorer_tool(patient: dict) -> dict:
 
 
 def _extract_first_json_object(text: str) -> dict:
-    """Extract and parse the first JSON object in a model response string."""
     start = text.find("{")
     end = text.rfind("}")
     if start == -1 or end == -1 or end <= start:
@@ -241,18 +196,17 @@ def _extract_first_json_object(text: str) -> dict:
 
 
 def _fallback_actions(risk: dict, role: str) -> list[str]:
-    """Generate non-clinical preventive actions when LLM output is unavailable."""
     factors = risk.get("contributing_factors", [])
     level = risk.get("risk_level", "Low")
     actions = []
 
     if "No follow-up scheduled" in factors:
         actions.append("Schedule follow-up within 7 days and confirm patient receives appointment details.")
-    if "Prior admissions ≥ 2 in last 6 months" in factors:
+    if "Prior admissions >= 2 in last 6 months" in factors:
         actions.append("Arrange proactive outreach calls in the first 72 hours after discharge.")
     if "Length of stay > 7 days" in factors:
         actions.append("Create a discharge transition checklist and verify completion before handoff.")
-    if "Medication count ≥ 8" in factors:
+    if "Medication count >= 8" in factors:
         actions.append("Assign medication reconciliation review and confirm understanding at discharge.")
 
     if role == "Hospital Operations Team":
@@ -284,7 +238,6 @@ def _render_assessment_response(
     actions: list[str],
     llm_warning: Optional[str] = None,
 ) -> str:
-    """Render a strict assessment response format with mandatory sections."""
     badge = {
         "High": "HIGH",
         "Medium": "MEDIUM",
@@ -311,11 +264,11 @@ def _render_assessment_response(
     ]
 
     for factor in top_factors:
-        lines.append(f"• {factor}")
+        lines.append(f"- {factor}")
 
     lines.extend(["", "RECOMMENDED PREVENTIVE ACTIONS:"])
     for action in actions[:4]:
-        lines.append(f"• {action}")
+        lines.append(f"- {action}")
 
     if llm_warning:
         lines.extend(["", llm_warning])
@@ -330,7 +283,6 @@ def _build_reasoning_prompt(
     role: str,
     query: str,
 ) -> str:
-    """Create a tightly constrained prompt for JSON reasoning output."""
     return (
         "You are a non-clinical hospital discharge decision-support assistant.\n"
         "Return JSON only with this exact schema:\n"
@@ -352,7 +304,6 @@ def _build_reasoning_prompt(
 
 
 def _llm_reasoning_payload(patient: dict, risk: dict, role: str, query: str) -> dict:
-    """Ask the local LLM for explanatory reasoning and preventive actions."""
     llm = ChatOllama(
         model="llama3.2:1b",
         temperature=0.1,
@@ -385,12 +336,6 @@ def run_assessment_with_reasoning(
     patient_data: Optional[dict] = None,
     allow_llm: bool = True,
 ) -> dict[str, Any]:
-    """Run a unified interactive assessment with mandatory output sections.
-
-    This is the primary path for interactive UI actions (Assess and Chat).
-    It always calls the risk scoring tool and then attempts LLM reasoning.
-    If LLM is unavailable, it falls back to deterministic interpretation.
-    """
     role_name = _normalize_role(role)
 
     patient: Optional[dict] = None
@@ -532,22 +477,6 @@ def run_assessment_with_reasoning(
 
 
 def run_agent_conversational(text: str) -> dict:
-    """Score a patient described in free text without going through the LLM.
-
-    Extracts patient attributes via regex, then runs the deterministic scorer.
-    This is the primary path for Mode A (Conversational Input) to avoid
-    agent iteration timeouts on llama3:8b.
-
-    Args:
-        text (str): Free-text patient description.
-
-    Returns:
-        dict: {
-            "patient_data": dict,
-            "risk_assessment": dict,
-            "parsed_fields": dict,   ← shows what was extracted
-        }
-    """
     patient = parse_conversational_input(text)
     assessment = compute_risk_score(patient)
     return {
@@ -558,14 +487,6 @@ def run_agent_conversational(text: str) -> dict:
 
 
 def _build_agent() -> AgentExecutor:
-    """Construct and return the LangChain AgentExecutor.
-
-    Uses a ReAct-style agent with the Ollama llama3:8b model.
-    Used only when a patient_id is available for lookup.
-
-    Returns:
-        AgentExecutor: Fully configured agent with tools and prompt.
-    """
     system_text = _load_system_prompt()
 
     react_template = (
@@ -576,7 +497,7 @@ You have access to the following tools:
 
 {tools}
 
-Use the following format EXACTLY — do not deviate:
+Use the following format EXACTLY - do not deviate:
 
 Question: the input question you must answer
 Thought: you should always think about what to do
@@ -591,7 +512,7 @@ Rules:
 - Then call risk_scorer_tool with the JSON patient data.
 - Then write the Final Answer using the structured assessment format.
 - Do NOT call tools more than once each.
-- Do NOT guess or invent a risk score — always use the tool result.
+- Do NOT guess or invent a risk score - always use the tool result.
 
 Begin!
 
@@ -625,11 +546,6 @@ _agent_executor: Union[AgentExecutor, None] = None
 
 
 def _get_executor() -> AgentExecutor:
-    """Return a cached AgentExecutor (lazy initialisation).
-
-    Returns:
-        AgentExecutor: The singleton agent executor instance.
-    """
     global _agent_executor
     if _agent_executor is None:
         _agent_executor = _build_agent()
@@ -637,21 +553,9 @@ def _get_executor() -> AgentExecutor:
 
 
 def run_agent(query: str) -> str:
-    """Run the readmission risk agent for a query that contains a patient ID.
-
-    Intended for patient-ID-based queries only. For free-text patient
-    descriptions use run_agent_conversational() instead to avoid iteration
-    timeouts with llama3:8b.
-
-    Args:
-        query (str): Natural language input referencing a patient ID.
-
-    Returns:
-        str: Structured risk assessment text with disclaimer.
-    """
     if not query or not query.strip():
         return (
-            "⚠️ No input provided. Please enter a patient ID or patient details "
+            "No input provided. Please enter a patient ID or patient details "
             "to generate a readmission risk assessment."
         )
 
@@ -684,21 +588,6 @@ def run_agent(query: str) -> str:
 
 
 def run_agent_direct(patient_id: str) -> dict:
-    """Directly score a patient by ID without going through the LLM.
-
-    Fast, deterministic path used for CSV lookup mode and batch validation.
-
-    Args:
-        patient_id (str): Patient identifier string, e.g. 'P007'.
-
-    Returns:
-        dict: {
-            "patient_id": str,
-            "patient_data": dict or None,
-            "risk_assessment": dict or None,
-            "error": str or None
-        }
-    """
     record = load_patient_by_id(patient_id)
     if record is None:
         return {

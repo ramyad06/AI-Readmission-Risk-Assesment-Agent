@@ -1,10 +1,3 @@
-"""
-test_agent_assessment.py — Tests for unified interactive assessment output contract.
-
-These tests run in deterministic fallback mode (allow_llm=False), so they do not
-require a running Ollama instance.
-"""
-
 import os
 import sys
 

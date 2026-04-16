@@ -1,9 +1,3 @@
-"""
-Minimal Hospital Discharge Planning Hub
-Real-world Readmission Risk Assessment Tool
-Runs Fully Offline · Decision-Support Only
-"""
-
 import streamlit as st
 import pandas as pd
 
@@ -31,28 +25,6 @@ st.markdown("""
     border-radius: 10px;
 }
 </style>
-""", unsafe_allow_html=True)
-
-@st.cache_data
-def get_all_patients():
-    df = load_all_patients()
-    rows = []
-    for _, r in df.iterrows():
-        risk = compute_risk_score(r.to_dict())
-        rows.append({
-            **r.to_dict(),
-            "risk_level": risk["risk_level"],
-            "risk_score": risk["score"]
-        })
-    return pd.DataFrame(rows)
-
-@st.cache_data
-def get_patient_ids():
-    return list_patient_ids()
-
-
-def _parse_assessment_response(text: str) -> dict:
-    """Parse the agent response into structured sections for display formatting."""
     parsed = {
         "target_user": "",
         "patient_id": "",
@@ -107,7 +79,7 @@ def _parse_assessment_response(text: str) -> dict:
             section = None
             continue
 
-        if line.startswith("• "):
+        if line.startswith("- "):
             item = line[2:].strip()
             if section == "factors":
                 parsed["factors"].append(item)
@@ -124,7 +96,6 @@ def _parse_assessment_response(text: str) -> dict:
 
 
 def _format_assessment_markdown(text: str) -> str:
-    """Return a user-friendly Markdown rendering of the assessment text."""
     p = _parse_assessment_response(text)
 
     lines = [
@@ -164,7 +135,7 @@ def _format_assessment_markdown(text: str) -> str:
 
 st.title("Discharge Planning Hub")
 st.caption(
-    "30-Day Readmission Risk Assessment · Decision-Support Tool"
+    "30-Day Readmission Risk Assessment - Decision-Support Tool"
 )
 st.divider()
 
@@ -360,4 +331,4 @@ with tab_records:
 
 st.divider()
 st.caption("Decision-Support Only")
-st.caption("Synthetic Data · Offline Mode")
+st.caption("Synthetic Data - Offline Mode")
