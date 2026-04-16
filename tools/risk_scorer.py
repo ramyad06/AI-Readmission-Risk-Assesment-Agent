@@ -11,8 +11,6 @@ import json
 from typing import Union
 from langchain.tools import tool
 
-
-# ── Scoring constants ──────────────────────────────────────────────────────────
 SCORE_THRESHOLDS = {
     "low":    (0, 3),
     "medium": (4, 6),
@@ -59,7 +57,6 @@ def compute_risk_score(patient: dict) -> dict:
     factors = []
     breakdown = {}
 
-    # ── Rule 1: Age ≥ 75 (+2) ──────────────────────────────────────────────────
     try:
         age = int(patient.get("age", 0))
     except (ValueError, TypeError):
@@ -72,7 +69,6 @@ def compute_risk_score(patient: dict) -> dict:
     else:
         breakdown["age"] = 0
 
-    # ── Rule 2: Prior admissions ≥ 2 in last 6 months (+2) ────────────────────
     try:
         prior = int(patient.get("prior_admissions_6mo", 0))
     except (ValueError, TypeError):
@@ -85,7 +81,6 @@ def compute_risk_score(patient: dict) -> dict:
     else:
         breakdown["prior_admissions"] = 0
 
-    # ── Rule 3: Length of stay > 7 days (+1) ──────────────────────────────────
     try:
         los = int(patient.get("length_of_stay_days", 0))
     except (ValueError, TypeError):
@@ -98,7 +93,6 @@ def compute_risk_score(patient: dict) -> dict:
     else:
         breakdown["length_of_stay"] = 0
 
-    # ── Rule 4: No follow-up scheduled (+2) ───────────────────────────────────
     follow_up = str(patient.get("follow_up_scheduled", "No")).strip().lower()
     if follow_up != "yes":
         score += 2
@@ -107,7 +101,6 @@ def compute_risk_score(patient: dict) -> dict:
     else:
         breakdown["no_follow_up"] = 0
 
-    # ── Rule 5: Comorbidity count ≥ 3 (+1) ────────────────────────────────────
     try:
         comorbidities = int(patient.get("comorbidity_count", 0))
     except (ValueError, TypeError):
@@ -120,7 +113,6 @@ def compute_risk_score(patient: dict) -> dict:
     else:
         breakdown["comorbidities"] = 0
 
-    # ── Rule 6: Medication count ≥ 8 (+1) ─────────────────────────────────────
     try:
         meds = int(patient.get("medication_count", 0))
     except (ValueError, TypeError):
@@ -133,7 +125,6 @@ def compute_risk_score(patient: dict) -> dict:
     else:
         breakdown["medication_count"] = 0
 
-    # ── Rule 7: Discharge to Home without services (+1) ───────────────────────
     discharge = str(patient.get("discharge_destination", "")).strip().lower()
     if discharge == "home":
         score += 1
@@ -142,7 +133,6 @@ def compute_risk_score(patient: dict) -> dict:
     else:
         breakdown["discharge_home"] = 0
 
-    # ── Classify risk level ────────────────────────────────────────────────────
     if score <= 3:
         risk_level = "Low"
     elif score <= 6:

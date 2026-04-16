@@ -8,7 +8,6 @@ import os
 import pandas as pd
 from typing import Any, Dict, Optional
 
-# Resolve the absolute path to the CSV regardless of CWD
 _DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data")
 _CSV_PATH = os.path.join(_DATA_DIR, "patients.csv")
 

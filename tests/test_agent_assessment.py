@@ -8,7 +8,6 @@ require a running Ollama instance.
 import os
 import sys
 
-# Allow import from project root
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from agent import run_assessment_with_reasoning
@@ -54,7 +53,7 @@ def test_assessment_response_has_required_sections():
     assert "Readmission Risk Level:" in text
     assert "TOP CONTRIBUTING FACTORS:" in text
     assert "RECOMMENDED PREVENTIVE ACTIONS:" in text
-    assert "⚠️ SAFETY DISCLAIMER:" in text
+    assert "SAFETY DISCLAIMER:" in text
 
 
 def test_high_risk_response_includes_escalation():
@@ -66,7 +65,7 @@ def test_high_risk_response_includes_escalation():
 
     assert result["error"] is None
     assert result["risk_assessment"]["risk_level"] == "High"
-    assert "⚠️ ESCALATE: Immediate care coordinator review recommended." in result["response_text"]
+    assert "ESCALATE: Immediate care coordinator review recommended." in result["response_text"]
 
 
 def test_missing_patient_id_returns_graceful_error():
@@ -78,7 +77,7 @@ def test_missing_patient_id_returns_graceful_error():
 
     assert result["error"] is not None
     assert "not found" in result["error"].lower()
-    assert "⚠️ SAFETY DISCLAIMER:" in result["response_text"]
+    assert "SAFETY DISCLAIMER:" in result["response_text"]
 
 
 def test_conversational_input_is_supported_in_unified_flow():

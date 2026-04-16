@@ -6,24 +6,16 @@ Runs Fully Offline · Decision-Support Only
 
 import streamlit as st
 import pandas as pd
-from datetime import datetime
 
 from agent import run_assessment_with_reasoning
 from tools.risk_scorer import compute_risk_score
 from utils.data_loader import load_all_patients, list_patient_ids
 
-
-# -----------------------------------------------------------------------------
-# Page Configuration
-# -----------------------------------------------------------------------------
 st.set_page_config(
     page_title="Discharge Planning Hub",
     layout="wide"
 )
 
-# -----------------------------------------------------------------------------
-# Minimal Styling
-# -----------------------------------------------------------------------------
 st.markdown("""
 <style>
 .block-container {
@@ -41,9 +33,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# -----------------------------------------------------------------------------
-# Cached Data
-# -----------------------------------------------------------------------------
 @st.cache_data
 def get_all_patients():
     df = load_all_patients()
@@ -109,11 +98,11 @@ def _parse_assessment_response(text: str) -> dict:
             section = "actions"
             continue
 
-        if line.startswith("⚠️ LLM reasoning unavailable"):
+        if line.startswith("LLM reasoning unavailable"):
             parsed["warning"] = line
             section = None
             continue
-        if line.startswith("⚠️ SAFETY DISCLAIMER:"):
+        if line.startswith("SAFETY DISCLAIMER:"):
             parsed["disclaimer"] = line
             section = None
             continue
@@ -173,47 +162,31 @@ def _format_assessment_markdown(text: str) -> str:
 
     return "\n".join(lines)
 
-# -----------------------------------------------------------------------------
-# Header
-# -----------------------------------------------------------------------------
 st.title("Discharge Planning Hub")
 st.caption(
-    "30-Day Readmission Risk Assessment · Decision-Support Tool · Runs Offline"
+    "30-Day Readmission Risk Assessment · Decision-Support Tool"
 )
 st.divider()
 
-# -----------------------------------------------------------------------------
-# Sidebar
-# -----------------------------------------------------------------------------
-with st.sidebar:
-    st.header("Controls")
+st.subheader("Target User")
+target_role = st.selectbox(
+    "Select user group",
+    [
+        "Care Coordinators",
+        "Hospital Operations Team",
+        "Case Managers",
+        "Nursing Staff",
+    ],
+    index=0,
+    help="Interactive assessments tailor non-clinical actions for this user group.",
+)
 
-    target_role = st.selectbox(
-        "Target User",
-        [
-            "Care Coordinators",
-            "Hospital Operations Team",
-            "Case Managers",
-            "Nursing Staff",
-        ],
-        index=0,
-        help="Interactive assessments tailor non-clinical actions for this user group.",
-    )
+if st.button("Clear Session"):
+    st.session_state.clear()
+    st.rerun()
 
-    if st.button("Run Demo (P007)"):
-        st.session_state["demo"] = "P007"
+st.divider()
 
-    if st.button("Clear Session"):
-        st.session_state.clear()
-        st.rerun()
-
-    st.divider()
-    st.caption("Decision-Support Only")
-    st.caption("Synthetic Data · Offline Mode")
-
-# -----------------------------------------------------------------------------
-# Tabs
-# -----------------------------------------------------------------------------
 tab_dashboard, tab_assess, tab_chat, tab_records = st.tabs([
     "Dashboard",
     "Assess Patient",
@@ -221,9 +194,6 @@ tab_dashboard, tab_assess, tab_chat, tab_records = st.tabs([
     "Records"
 ])
 
-# =============================================================================
-# TAB 1 — DASHBOARD
-# =============================================================================
 with tab_dashboard:
     st.subheader("Risk Overview")
     st.caption("Operational overview only: deterministic scoring is used in this tab.")
@@ -248,9 +218,6 @@ with tab_dashboard:
         hide_index=True
     )
 
-# =============================================================================
-# TAB 2 — ASSESS PATIENT
-# =============================================================================
 with tab_assess:
     st.subheader("Assess Readmission Risk")
     st.caption("Interactive assessments use LLM reasoning plus rule-based scoring.")
@@ -263,9 +230,7 @@ with tab_assess:
 
     if mode == "Existing Patient":
         ids = get_patient_ids()
-        default_pid = st.session_state.get("demo", ids[0])
-
-        pid = st.selectbox("Patient ID", ids, index=ids.index(default_pid))
+        pid = st.selectbox("Patient ID", ids, index=0)
 
         if st.button("Assess Patient"):
             result = run_assessment_with_reasoning(
@@ -334,10 +299,7 @@ with tab_assess:
             st.markdown(_format_assessment_markdown(result["response_text"]))
             with st.expander("Patient Summary", expanded=False):
                 st.json(result["patient_data"])
-
-# =============================================================================
-# TAB 3 — AI ASSISTANT
-# =============================================================================
+ 
 with tab_chat:
     st.subheader("AI Discharge Assistant")
     st.caption("Chat responses use LLM reasoning with mandatory safety and action sections.")
@@ -371,9 +333,6 @@ with tab_chat:
         with st.chat_message(role):
             st.markdown(message)
 
-# =============================================================================
-# TAB 4 — PATIENT RECORDS
-# =============================================================================
 with tab_records:
     st.subheader("Patient Records")
     st.caption("Operational records view uses deterministic scoring for fast filtering/export.")
@@ -393,17 +352,12 @@ with tab_records:
     csv = df.to_csv(index=False).encode("utf-8")
 
     st.download_button(
-        "⬇ Download CSV",
+        "Download CSV",
         data=csv,
         file_name="patient_records.csv",
         mime="text/csv"
     )
 
-# -----------------------------------------------------------------------------
-# Footer
-# -----------------------------------------------------------------------------
 st.divider()
-st.caption(
-    f"Generated on {datetime.now().strftime('%d %B %Y')} · "
-    "Hospital Discharge Planning Hub · Offline AI Tool"
-)
+st.caption("Decision-Support Only")
+st.caption("Synthetic Data · Offline Mode")

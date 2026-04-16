@@ -7,7 +7,6 @@ Dashboard and batch utilities can still use deterministic scoring directly.
 
 from __future__ import annotations
 
-# Python 3.14 compatibility: patch pydantic's type evaluation
 import sys
 if sys.version_info >= (3, 14):
     try:
@@ -52,12 +51,10 @@ from langchain_ollama import ChatOllama
 from tools.risk_scorer import compute_risk_score, risk_scorer_tool
 from utils.data_loader import load_patient_by_id
 
-# ── Path to system prompt ──────────────────────────────────────────────────────
 _PROMPT_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "prompts", "system_prompt.txt"
 )
 
-# ── Condition synonym mapping ──────────────────────────────────────────────────
 _CONDITION_MAP = {
     "heart failure": "Heart Failure",
     "hf": "Heart Failure",
@@ -82,12 +79,12 @@ _ROLE_LABELS = {
 _DEFAULT_ROLE = "Care Coordinators"
 
 _SAFETY_DISCLAIMER = (
-    "⚠️ SAFETY DISCLAIMER: This is a decision-support tool. "
+    "SAFETY DISCLAIMER: This is a decision-support tool. "
     "Always consult a licensed clinician before acting on this output."
 )
 
 _FALLBACK_WARNING_PREFIX = (
-    "⚠️ LLM reasoning unavailable. Deterministic explanation mode used:"
+    "LLM reasoning unavailable. Deterministic explanation mode used:"
 )
 
 
@@ -105,8 +102,6 @@ def _load_system_prompt() -> str:
     with open(_PROMPT_PATH, "r", encoding="utf-8") as f:
         return f.read()
 
-
-# ── Tool: Patient Lookup ───────────────────────────────────────────────────────
 @tool
 def patient_lookup_tool(patient_id: str) -> str:
     """Look up a patient record in the hospital dataset by their patient ID.
@@ -127,7 +122,6 @@ def patient_lookup_tool(patient_id: str) -> str:
     return json.dumps(record, default=str)
 
 
-# ── Free-text extraction (no LLM required) ────────────────────────────────────
 def parse_conversational_input(text: str) -> dict:
     """Extract patient attributes from a free-text description.
 
@@ -146,26 +140,22 @@ def parse_conversational_input(text: str) -> dict:
     """
     t = text.lower()
 
-    # ── Age ───────────────────────────────────────────────────────────────────
     age = 0
     m = re.search(r'(\d{1,3})\s*(?:year[s]?\s*old|yo\b|-year)', t)
     if m:
         age = int(m.group(1))
 
-    # ── Primary condition ─────────────────────────────────────────────────────
     condition = "Unknown"
     for keyword, canonical in _CONDITION_MAP.items():
         if keyword in t:
             condition = canonical
             break
 
-    # ── Length of stay ────────────────────────────────────────────────────────
     los = 0
     m = re.search(r'(\d+)\s*(?:-?\s*day[s]?\s*stay|days?\s+(?:in\s+)?hospital|day\s+stay)', t)
     if m:
         los = int(m.group(1))
 
-    # ── Prior admissions in last 6 months ─────────────────────────────────────
     prior = 0
     m = re.search(
         r'(\d+)\s*(?:prior|previous|past|recent)?\s*admissions?'
@@ -175,7 +165,6 @@ def parse_conversational_input(text: str) -> dict:
     if m:
         prior = int(m.group(1))
 
-    # ── Follow-up ─────────────────────────────────────────────────────────────
     follow_up = "Yes"
     no_followup_patterns = [
         r'no\s+follow.?up',
@@ -189,19 +178,16 @@ def parse_conversational_input(text: str) -> dict:
             follow_up = "No"
             break
 
-    # ── Medication count ──────────────────────────────────────────────────────
     meds = 0
     m = re.search(r'(\d+)\s*(?:medications?|meds?|drugs?|prescriptions?)', t)
     if m:
         meds = int(m.group(1))
 
-    # ── Comorbidity count ─────────────────────────────────────────────────────
     comorbidities = 0
     m = re.search(r'(\d+)\s*(?:comorbidities|comorbidity|co-morbidities|conditions?)', t)
     if m:
         comorbidities = int(m.group(1))
 
-    # ── Discharge destination ─────────────────────────────────────────────────
     discharge = "Home"
     if re.search(r'\b(?:snf|nursing\s+facility|skilled\s+nursing)\b', t):
         discharge = "SNF"
@@ -279,7 +265,7 @@ def _fallback_actions(risk: dict, role: str) -> list[str]:
         actions.append("Confirm care coordinator ownership and close-loop follow-up tracking.")
 
     if level == "High":
-        actions.insert(0, "⚠️ ESCALATE: Immediate care coordinator review recommended.")
+        actions.insert(0, "ESCALATE: Immediate care coordinator review recommended.")
 
     deduped = []
     seen = set()
@@ -300,16 +286,16 @@ def _render_assessment_response(
 ) -> str:
     """Render a strict assessment response format with mandatory sections."""
     badge = {
-        "High": "🔴 HIGH",
-        "Medium": "🟡 MEDIUM",
-        "Low": "🟢 LOW",
-    }.get(risk.get("risk_level", "Low"), "🟢 LOW")
+        "High": "HIGH",
+        "Medium": "MEDIUM",
+        "Low": "LOW",
+    }.get(risk.get("risk_level", "Low"), "LOW")
 
     factors = risk.get("contributing_factors") or ["No major risk factors identified by scoring rules."]
     top_factors = factors[:3]
 
     if risk.get("risk_level") == "High" and not any("ESCALATE" in a for a in actions):
-        actions = ["⚠️ ESCALATE: Immediate care coordinator review recommended."] + actions
+        actions = ["ESCALATE: Immediate care coordinator review recommended."] + actions
 
     lines = [
         "READMISSION RISK ASSESSMENT",
@@ -356,7 +342,7 @@ def _build_reasoning_prompt(
         "Rules:\n"
         "- Use non-clinical, coordination-focused actions only.\n"
         "- Do not diagnose or prescribe medications.\n"
-        "- If risk_level is High, include this exact action: \"⚠️ ESCALATE: Immediate care coordinator review recommended.\"\n"
+        "- If risk_level is High, include this exact action: \"ESCALATE: Immediate care coordinator review recommended.\"\n"
         "- Tailor wording for this target user role: "
         f"{role}.\n\n"
         f"Original request: {query or 'N/A'}\n\n"
@@ -571,7 +557,6 @@ def run_agent_conversational(text: str) -> dict:
     }
 
 
-# ── Agent construction (used for ID-based LLM narrative) ──────────────────────
 def _build_agent() -> AgentExecutor:
     """Construct and return the LangChain AgentExecutor.
 
@@ -636,7 +621,6 @@ Thought:{agent_scratchpad}"""
     return executor
 
 
-# ── Cached executor ────────────────────────────────────────────────────────────
 _agent_executor: Union[AgentExecutor, None] = None
 
 
@@ -677,7 +661,7 @@ def run_agent(query: str) -> str:
         output = result.get("output", "")
 
         disclaimer = (
-            "\n\n⚠️ DISCLAIMER: This is a decision-support tool. "
+            "\n\nDISCLAIMER: This is a decision-support tool. "
             "Always consult a licensed clinician before acting on this output."
         )
         if "disclaimer" not in output.lower() and "advisory" not in output.lower():
@@ -689,14 +673,14 @@ def run_agent(query: str) -> str:
         err = str(exc)
         if "connection" in err.lower() or "refused" in err.lower():
             return (
-                "❌ Cannot connect to Ollama.\n\n"
+                "Cannot connect to Ollama.\n\n"
                 "Please ensure Ollama is running:\n"
                 "  1. Open a terminal\n"
                 "  2. Run: `ollama serve`\n"
                 "  3. In another terminal, verify: `ollama list`\n"
                 "  4. Confirm llama3:8b is listed, then retry."
             )
-        return f"❌ Agent error: {err}"
+        return f"Agent error: {err}"
 
 
 def run_agent_direct(patient_id: str) -> dict:
