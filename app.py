@@ -25,6 +25,9 @@ st.markdown("""
     border-radius: 10px;
 }
 </style>
+""", unsafe_allow_html=True)
+
+def _parse_assessment_response(text: str) -> dict:
     parsed = {
         "target_user": "",
         "patient_id": "",
@@ -169,7 +172,7 @@ with tab_dashboard:
     st.subheader("Risk Overview")
     st.caption("Operational overview only: deterministic scoring is used in this tab.")
 
-    df = get_all_patients()
+    df = load_all_patients()
 
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("High Risk", (df["risk_level"] == "High").sum())
@@ -200,7 +203,7 @@ with tab_assess:
     )
 
     if mode == "Existing Patient":
-        ids = get_patient_ids()
+        ids = list_patient_ids()
         pid = st.selectbox("Patient ID", ids, index=0)
 
         if st.button("Assess Patient"):
@@ -308,7 +311,7 @@ with tab_records:
     st.subheader("Patient Records")
     st.caption("Operational records view uses deterministic scoring for fast filtering/export.")
 
-    df = get_all_patients()
+    df = load_all_patients()
 
     risk_filter = st.multiselect(
         "Filter by Risk Level",

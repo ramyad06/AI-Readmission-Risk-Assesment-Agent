@@ -87,6 +87,7 @@ def _load_system_prompt() -> str:
 
 @tool
 def patient_lookup_tool(patient_id: str) -> str:
+    """Looks up patient details by patient ID."""
     patient_id = str(patient_id).strip().upper()
     record = load_patient_by_id(patient_id)
     if record is None:
@@ -305,7 +306,7 @@ def _build_reasoning_prompt(
 
 def _llm_reasoning_payload(patient: dict, risk: dict, role: str, query: str) -> dict:
     llm = ChatOllama(
-        model="llama3.2:1b",
+        model="llama3.2:3b",
         temperature=0.1,
         num_predict=900,
     )

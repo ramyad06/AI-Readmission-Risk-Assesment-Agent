@@ -1,10 +1,10 @@
 import os
 import pandas as pd
 from typing import Any, Dict, Optional
+from tools.risk_scorer import compute_risk_score
 
 _DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data")
 _CSV_PATH = os.path.join(_DATA_DIR, "patients.csv")
-
 
 def load_all_patients() -> pd.DataFrame:
     if not os.path.exists(_CSV_PATH):
@@ -13,7 +13,19 @@ def load_all_patients() -> pd.DataFrame:
             "Ensure data/patients.csv exists relative to the project root."
         )
     df = pd.read_csv(_CSV_PATH, dtype={"patient_id": str})
+    
+    if "risk_level" not in df.columns or "risk_score" not in df.columns:
+        risk_levels = []
+        risk_scores = []
+        for _, row in df.iterrows():
+            risk = compute_risk_score(row.to_dict())
+            risk_levels.append(risk["risk_level"])
+            risk_scores.append(risk["score"])
+        df["risk_level"] = risk_levels
+        df["risk_score"] = risk_scores
+        
     return df
+
 
 
 def list_patient_ids() -> list[str]:
