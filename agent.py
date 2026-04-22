@@ -3,41 +3,41 @@ from __future__ import annotations
 import sys
 if sys.version_info >= (3, 14):
     try:
-        import pydantic._internal._typing_extra as typing_extra
+        import pydantic._internal._typing_extra as _typing_extra
 
-        _orig_try_eval_type = typing_extra.try_eval_type
-        _orig_eval_type_backport = typing_extra.eval_type_backport
+        _orig_try_eval = _typing_extra.try_eval_type
+        _orig_eval_bp  = _typing_extra.eval_type_backport
 
-        def patched_try_eval_type(value, globalns, localns):
+        def _patched_try_eval(value, globalns, localns):
             try:
-                return _orig_try_eval_type(value, globalns, localns)
+                return _orig_try_eval(value, globalns, localns)
             except TypeError as exc:
                 if "'function' object is not subscriptable" in str(exc):
                     return value, False
                 raise
 
-        def patched_eval_type_backport(value, globalns=None, localns=None, type_params=None):
+        def _patched_eval_bp(value, globalns=None, localns=None, type_params=None):
             try:
-                return _orig_eval_type_backport(value, globalns, localns, type_params)
+                return _orig_eval_bp(value, globalns, localns, type_params)
             except TypeError as exc:
                 if "'function' object is not subscriptable" in str(exc):
                     return value
                 raise
-        
-        typing_extra.try_eval_type = patched_try_eval_type
-        typing_extra.eval_type_backport = patched_eval_type_backport
+
+        _typing_extra.try_eval_type      = _patched_try_eval
+        _typing_extra.eval_type_backport = _patched_eval_bp
     except Exception:
         pass
 
 import json
 import os
 import re
-from typing import Any, Optional, Union
+from typing import Any, Optional
 
-from langchain.agents import AgentExecutor, create_react_agent
-from langchain.prompts import PromptTemplate
 from langchain.tools import tool
 from langchain_ollama import ChatOllama
+
+MODEL_NAME = "llama3.2:3b"
 
 from tools.risk_scorer import compute_risk_score, risk_scorer_tool
 from utils.data_loader import load_patient_by_id
@@ -77,6 +77,24 @@ _SAFETY_DISCLAIMER = (
 _FALLBACK_WARNING_PREFIX = (
     "LLM reasoning unavailable. Deterministic explanation mode used:"
 )
+
+# Keywords that indicate a medical / patient-related query
+_MEDICAL_KEYWORDS = {
+    "patient", "readmission", "risk", "discharge", "hospital", "condition",
+    "diagnosis", "age", "stay", "admission", "follow", "medication", "med",
+    "comorbid", "rehab", "snf", "nursing", "heart", "copd", "diabetes",
+    "pneumonia", "fracture", "assess", "score", "high", "medium", "low",
+    "care", "coordinator", "case", "manager", "clinical", "health",
+}
+
+
+def _is_medical_query(text: str) -> bool:
+    """Return True only if the query looks medical/patient-related."""
+    # A patient-ID pattern (e.g. P007) is always medical
+    if re.search(r"\bP\d{3}\b", text.upper()):
+        return True
+    words = set(re.findall(r"[a-z]+", text.lower()))
+    return bool(words & _MEDICAL_KEYWORDS)
 
 
 def _load_system_prompt() -> str:
@@ -189,11 +207,12 @@ def _call_risk_scorer_tool(patient: dict) -> dict:
 
 
 def _extract_first_json_object(text: str) -> dict:
-    start = text.find("{")
-    end = text.rfind("}")
-    if start == -1 or end == -1 or end <= start:
+    # Strip markdown code fences if present
+    cleaned = re.sub(r"```(?:json)?", "", text, flags=re.IGNORECASE).strip()
+    match = re.search(r"\{.*\}", cleaned, re.DOTALL)
+    if not match:
         raise ValueError("No JSON object found in LLM response")
-    return json.loads(text[start : end + 1])
+    return json.loads(match.group())
 
 
 def _fallback_actions(risk: dict, role: str) -> list[str]:
@@ -306,7 +325,7 @@ def _build_reasoning_prompt(
 
 def _llm_reasoning_payload(patient: dict, risk: dict, role: str, query: str) -> dict:
     llm = ChatOllama(
-        model="llama3.2:3b",
+        model=MODEL_NAME,
         temperature=0.1,
         num_predict=900,
     )
@@ -334,7 +353,6 @@ def run_assessment_with_reasoning(
     query: str = "",
     role: str = _DEFAULT_ROLE,
     patient_id: Optional[str] = None,
-    patient_data: Optional[dict] = None,
     allow_llm: bool = True,
 ) -> dict[str, Any]:
     role_name = _normalize_role(role)
@@ -342,9 +360,7 @@ def run_assessment_with_reasoning(
     patient: Optional[dict] = None
     source_query = (query or "").strip()
 
-    if patient_data is not None:
-        patient = dict(patient_data)
-    elif patient_id:
+    if patient_id:
         pid = str(patient_id).strip().upper()
         patient = load_patient_by_id(pid)
         if patient is None:
@@ -384,6 +400,22 @@ def run_assessment_with_reasoning(
                     "role": role_name,
                 }
         elif source_query:
+            if not _is_medical_query(source_query):
+                return {
+                    "error": None,
+                    "response_text": (
+                        "I'm a clinical decision-support assistant specialised in "
+                        "30-day hospital readmission risk.\n\n"
+                        "I can only help with medical or patient-related queries. "
+                        "Please enter a patient ID (e.g. P007) or describe a "
+                        "patient profile to get a readmission risk assessment."
+                    ),
+                    "patient_data": None,
+                    "risk_assessment": None,
+                    "used_llm_reasoning": False,
+                    "used_fallback": False,
+                    "role": role_name,
+                }
             patient = parse_conversational_input(source_query)
 
     if patient is None:
@@ -477,131 +509,3 @@ def run_assessment_with_reasoning(
     }
 
 
-def run_agent_conversational(text: str) -> dict:
-    patient = parse_conversational_input(text)
-    assessment = compute_risk_score(patient)
-    return {
-        "patient_data": patient,
-        "risk_assessment": assessment,
-        "parsed_fields": patient,
-    }
-
-
-def _build_agent() -> AgentExecutor:
-    system_text = _load_system_prompt()
-
-    react_template = (
-        system_text
-        + """
-
-You have access to the following tools:
-
-{tools}
-
-Use the following format EXACTLY - do not deviate:
-
-Question: the input question you must answer
-Thought: you should always think about what to do
-Action: the action to take, should be one of [{tool_names}]
-Action Input: the input to the action (a plain string or JSON)
-Observation: the result of the action
-Thought: I now know the final answer
-Final Answer: the final answer to the original input question
-
-Rules:
-- Always call patient_lookup_tool first with the patient ID.
-- Then call risk_scorer_tool with the JSON patient data.
-- Then write the Final Answer using the structured assessment format.
-- Do NOT call tools more than once each.
-- Do NOT guess or invent a risk score - always use the tool result.
-
-Begin!
-
-Question: {input}
-Thought:{agent_scratchpad}"""
-    )
-
-    prompt = PromptTemplate.from_template(react_template)
-
-    llm = ChatOllama(
-        model="llama3.2:3b",
-        temperature=0.1,
-        num_predict=1500,
-    )
-
-    tools = [patient_lookup_tool, risk_scorer_tool]
-    agent = create_react_agent(llm=llm, tools=tools, prompt=prompt)
-
-    executor = AgentExecutor(
-        agent=agent,
-        tools=tools,
-        verbose=True,
-        handle_parsing_errors=True,
-        max_iterations=8,
-        return_intermediate_steps=True,
-    )
-    return executor
-
-
-_agent_executor: Union[AgentExecutor, None] = None
-
-
-def _get_executor() -> AgentExecutor:
-    global _agent_executor
-    if _agent_executor is None:
-        _agent_executor = _build_agent()
-    return _agent_executor
-
-
-def run_agent(query: str) -> str:
-    if not query or not query.strip():
-        return (
-            "No input provided. Please enter a patient ID or patient details "
-            "to generate a readmission risk assessment."
-        )
-
-    try:
-        executor = _get_executor()
-        result = executor.invoke({"input": query})
-        output = result.get("output", "")
-
-        disclaimer = (
-            "\n\nDISCLAIMER: This is a decision-support tool. "
-            "Always consult a licensed clinician before acting on this output."
-        )
-        if "disclaimer" not in output.lower() and "advisory" not in output.lower():
-            output += disclaimer
-
-        return output
-
-    except Exception as exc:
-        err = str(exc)
-        if "connection" in err.lower() or "refused" in err.lower():
-            return (
-                "Cannot connect to Ollama.\n\n"
-                "Please ensure Ollama is running:\n"
-                "  1. Open a terminal\n"
-                "  2. Run: `ollama serve`\n"
-                "  3. In another terminal, verify: `ollama list`\n"
-                "  4. Confirm llama3:8b is listed, then retry."
-            )
-        return f"Agent error: {err}"
-
-
-def run_agent_direct(patient_id: str) -> dict:
-    record = load_patient_by_id(patient_id)
-    if record is None:
-        return {
-            "patient_id": patient_id,
-            "patient_data": None,
-            "risk_assessment": None,
-            "error": "Patient not found",
-        }
-
-    assessment = compute_risk_score(record)
-    return {
-        "patient_id": patient_id,
-        "patient_data": record,
-        "risk_assessment": assessment,
-        "error": None,
-    }

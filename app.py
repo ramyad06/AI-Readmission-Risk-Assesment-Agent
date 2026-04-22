@@ -5,6 +5,11 @@ from agent import run_assessment_with_reasoning
 from tools.risk_scorer import compute_risk_score
 from utils.data_loader import load_all_patients, list_patient_ids
 
+
+@st.cache_data(ttl=300)
+def _cached_patients() -> pd.DataFrame:
+    return load_all_patients()
+
 st.set_page_config(
     page_title="Discharge Planning Hub",
     layout="wide"
@@ -172,7 +177,7 @@ with tab_dashboard:
     st.subheader("Risk Overview")
     st.caption("Operational overview only: deterministic scoring is used in this tab.")
 
-    df = load_all_patients()
+    df = _cached_patients()
 
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("High Risk", (df["risk_level"] == "High").sum())
@@ -196,80 +201,19 @@ with tab_assess:
     st.subheader("Assess Readmission Risk")
     st.caption("Interactive assessments use LLM reasoning plus rule-based scoring.")
 
-    mode = st.radio(
-        "Select Mode",
-        ["Existing Patient", "New Patient"],
-        horizontal=True
-    )
+    ids = list_patient_ids()
+    pid = st.selectbox("Patient ID", ids, index=0)
 
-    if mode == "Existing Patient":
-        ids = list_patient_ids()
-        pid = st.selectbox("Patient ID", ids, index=0)
+    if st.button("Assess Patient"):
+        result = run_assessment_with_reasoning(
+            query=f"Assess patient {pid} for 30-day readmission risk.",
+            role=target_role,
+            patient_id=pid,
+        )
 
-        if st.button("Assess Patient"):
-            result = run_assessment_with_reasoning(
-                query=f"Assess patient {pid} for 30-day readmission risk.",
-                role=target_role,
-                patient_id=pid,
-            )
-
-            if result["error"]:
-                st.error(result["error"])
-            else:
-                st.markdown(_format_assessment_markdown(result["response_text"]))
-                with st.expander("Patient Summary", expanded=False):
-                    st.json(result["patient_data"])
-
-    else:
-        with st.form("new_patient"):
-            col1, col2, col3 = st.columns(3)
-
-            with col1:
-                age = st.number_input("Age", 18, 110, 65)
-                los = st.number_input("Length of Stay", 0, 30, 5)
-                meds = st.number_input("Medication Count", 0, 20, 5)
-
-            with col2:
-                condition = st.selectbox(
-                    "Primary Condition",
-                    ["Heart Failure", "COPD", "Diabetes", "Pneumonia", "Hip Fracture", "Other"]
-                )
-                prior = st.number_input("Prior Admissions (6mo)", 0, 10, 0)
-                comorb = st.number_input("Comorbidities", 0, 10, 0)
-
-            with col3:
-                discharge = st.selectbox(
-                    "Discharge Destination",
-                    ["Home", "Home+Services", "SNF", "Rehab"]
-                )
-                follow_up = st.selectbox("Follow-up Scheduled", ["Yes", "No"])
-
-            submitted = st.form_submit_button("Calculate Risk")
-
-        if submitted:
-            patient = {
-                "patient_id": "NEW",
-                "age": age,
-                "primary_condition": condition,
-                "length_of_stay_days": los,
-                "prior_admissions_6mo": prior,
-                "discharge_destination": discharge,
-                "follow_up_scheduled": follow_up,
-                "medication_count": meds,
-                "comorbidity_count": comorb,
-            }
-
-            result = run_assessment_with_reasoning(
-                query=(
-                    "Assess this new patient profile for 30-day readmission risk and "
-                    "provide non-clinical preventive actions."
-                ),
-                role=target_role,
-                patient_data=patient,
-            )
-
-            if result["error"]:
-                st.error(result["error"])
+        if result["error"]:
+            st.error(result["error"])
+        else:
             st.markdown(_format_assessment_markdown(result["response_text"]))
             with st.expander("Patient Summary", expanded=False):
                 st.json(result["patient_data"])
@@ -277,6 +221,22 @@ with tab_assess:
 with tab_chat:
     st.subheader("AI Discharge Assistant")
     st.caption("Chat responses use LLM reasoning with mandatory safety and action sections.")
+
+    st.info("""
+To assess a patient, provide the following details in your message:
+
+- **Patient ID** — e.g. P007  (or describe the patient below)
+- **Age** — e.g. 65 years old
+- **Primary condition** — Heart Failure, COPD, Diabetes, Pneumonia, Hip Fracture, or Other
+- **Length of hospital stay** — e.g. 5 day stay
+- **Prior admissions in last 6 months** — e.g. 2 prior admissions
+- **Discharge destination** — Home, Home with services, SNF, or Rehab
+- **Follow-up scheduled** — yes or no
+- **Medication count** — e.g. 8 medications
+- **Comorbidities** — e.g. 3 comorbidities
+
+Example: "65 year old with Heart Failure, 8 day stay, 2 prior admissions, discharged home, no follow-up scheduled, 10 medications, 3 comorbidities"
+""")
 
     user_input = st.chat_input(
         "Enter a patient ID or describe a patient..."
@@ -298,6 +258,9 @@ with tab_chat:
                 f"{_format_assessment_markdown(result['response_text'])}\n\n"
                 f"**Error:** {result['error']}"
             )
+        elif result["risk_assessment"] is None:
+            # Plain informational message (e.g. off-topic query redirect)
+            reply = result["response_text"]
         else:
             reply = _format_assessment_markdown(result["response_text"])
 
@@ -311,7 +274,7 @@ with tab_records:
     st.subheader("Patient Records")
     st.caption("Operational records view uses deterministic scoring for fast filtering/export.")
 
-    df = load_all_patients()
+    df = _cached_patients()
 
     risk_filter = st.multiselect(
         "Filter by Risk Level",
