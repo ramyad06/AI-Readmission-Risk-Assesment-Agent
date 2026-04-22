@@ -50,13 +50,6 @@ ollama pull llama3.2:3b
 streamlit run app.py
 ```
 
-## Validation and tests
-
-```bash
-python validate_agent.py
-python -m pytest -v
-```
-
 ## Safety note
 
 This project is a decision-support prototype and not a clinical diagnosis system. Always involve licensed clinicians before acting on risk outputs.
