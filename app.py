@@ -11,7 +11,7 @@ def _cached_patients() -> pd.DataFrame:
     return load_all_patients()
 
 st.set_page_config(
-    page_title="Discharge Planning Hub",
+    page_title="AI Readmission Risk Assessment Agent​​",
     layout="wide"
 )
 
@@ -141,7 +141,7 @@ def _format_assessment_markdown(text: str) -> str:
 
     return "\n".join(lines)
 
-st.title("Discharge Planning Hub")
+st.title("Discharge Risk Monitor")
 st.caption(
     "30-Day Readmission Risk Assessment - Decision-Support Tool"
 )
