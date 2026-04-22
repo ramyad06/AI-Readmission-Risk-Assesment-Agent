@@ -40,8 +40,13 @@ load_dotenv()
 from langchain.tools import tool
 from langchain_ollama import ChatOllama
 
-MODEL_NAME      = os.getenv("OLLAMA_MODEL",    "llama3.2:3b")
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+MODEL_NAME      = os.getenv("OLLAMA_MODEL")
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL")
+
+if not MODEL_NAME:
+    raise EnvironmentError("OLLAMA_MODEL is not set. Add it to your .env file.")
+if not OLLAMA_BASE_URL:
+    raise EnvironmentError("OLLAMA_BASE_URL is not set. Add it to your .env file.")
 
 from tools.risk_scorer import compute_risk_score, risk_scorer_tool
 from utils.data_loader import load_patient_by_id
