@@ -107,7 +107,7 @@ def compute_risk_score(patient: dict) -> dict:
 
 @tool
 def risk_scorer_tool(patient_json: str) -> str:
-    """ Computes the readmission risk score and level from patient data via JSON string. """
+    """Computes the readmission risk score and level from patient data via JSON string."""
     try:
         patient = json.loads(patient_json)
     except json.JSONDecodeError as exc:

@@ -34,10 +34,14 @@ import os
 import re
 from typing import Any, Optional
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from langchain.tools import tool
 from langchain_ollama import ChatOllama
 
-MODEL_NAME = "llama3.2:3b"
+MODEL_NAME      = os.getenv("OLLAMA_MODEL",    "llama3.2:3b")
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
 from tools.risk_scorer import compute_risk_score, risk_scorer_tool
 from utils.data_loader import load_patient_by_id
@@ -78,7 +82,6 @@ _FALLBACK_WARNING_PREFIX = (
     "LLM reasoning unavailable. Deterministic explanation mode used:"
 )
 
-# Keywords that indicate a medical / patient-related query
 _MEDICAL_KEYWORDS = {
     "patient", "readmission", "risk", "discharge", "hospital", "condition",
     "diagnosis", "age", "stay", "admission", "follow", "medication", "med",
@@ -90,7 +93,6 @@ _MEDICAL_KEYWORDS = {
 
 def _is_medical_query(text: str) -> bool:
     """Return True only if the query looks medical/patient-related."""
-    # A patient-ID pattern (e.g. P007) is always medical
     if re.search(r"\bP\d{3}\b", text.upper()):
         return True
     words = set(re.findall(r"[a-z]+", text.lower()))
@@ -207,7 +209,6 @@ def _call_risk_scorer_tool(patient: dict) -> dict:
 
 
 def _extract_first_json_object(text: str) -> dict:
-    # Strip markdown code fences if present
     cleaned = re.sub(r"```(?:json)?", "", text, flags=re.IGNORECASE).strip()
     match = re.search(r"\{.*\}", cleaned, re.DOTALL)
     if not match:
@@ -326,6 +327,7 @@ def _build_reasoning_prompt(
 def _llm_reasoning_payload(patient: dict, risk: dict, role: str, query: str) -> dict:
     llm = ChatOllama(
         model=MODEL_NAME,
+        base_url=OLLAMA_BASE_URL,
         temperature=0.1,
         num_predict=900,
     )
@@ -496,5 +498,3 @@ def run_assessment_with_reasoning(
         "used_fallback": used_fallback,
         "role": role_name,
     }
-
-

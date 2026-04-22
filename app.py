@@ -199,8 +199,6 @@ with tab_dashboard:
 
 with tab_assess:
     st.subheader("Assess Readmission Risk")
-    st.caption("Interactive assessments use LLM reasoning plus rule-based scoring.")
-
     ids = list_patient_ids()
     pid = st.selectbox("Patient ID", ids, index=0)
 
