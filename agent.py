@@ -380,25 +380,14 @@ def run_assessment_with_reasoning(
                 "role": role_name,
             }
     else:
-        pid_match = re.search(r"\bP\d{3}\b", source_query.upper())
+        pid_match = re.search(r"\bP\d+\b", source_query.upper())
         if pid_match:
             patient = load_patient_by_id(pid_match.group())
             if patient is None:
-                return {
-                    "error": f"Patient '{pid_match.group()}' not found.",
-                    "response_text": (
-                        f"READMISSION RISK ASSESSMENT\n"
-                        f"Target User: {role_name}\n"
-                        f"Patient ID: {pid_match.group()}\n\n"
-                        f"Unable to locate this patient in the local dataset.\n\n"
-                        f"{_SAFETY_DISCLAIMER}"
-                    ),
-                    "patient_data": None,
-                    "risk_assessment": None,
-                    "used_llm_reasoning": False,
-                    "used_fallback": True,
-                    "role": role_name,
-                }
+                # ID not in CSV — parse the rest of the message
+                # conversationally and use the mentioned ID as the label
+                patient = parse_conversational_input(source_query)
+                patient["patient_id"] = pid_match.group()
         elif source_query:
             if not _is_medical_query(source_query):
                 return {
